@@ -10,8 +10,9 @@ import tempfile
 import parcels
 import numpy as np
 import pandas as pd
+import inspect
 
-from core_lpt import run_simulation
+import core_lpt
 
 
 # Page configuration
@@ -245,24 +246,34 @@ if valid_data:
         ) as status:
             my_bar = st.progress(0, text="Initializing simulation...")
             try:
-                ZARR_PATH = run_simulation(
-                    tmp_path,
-                    ZARR_PATH,
-                    days=days,
-                    mode=particle_mode,
-                    progress_bar=my_bar,
-                    particle_count=(
-                        int(particle_count_override)
-                        if int(particle_count_override) > 0
-                        else None
-                    ),
-                    seed=(int(random_seed) if int(random_seed) > 0 else None),
-                    backend=particle_backend,
-                    dt_minutes=int(dt_minutes),
-                    output_hours=int(output_hours),
-                    repeat_release_hours=(
-                        int(repeat_release_hours) if release_mode == "repeated" else None
-                    ),
+                ZARR_PATH = core_lpt.run_simulation(
+                    **{
+                        k: v
+                        for k, v in {
+                            "file_path": tmp_path,
+                            "output_path": ZARR_PATH,
+                            "days": days,
+                            "mode": particle_mode,
+                            "progress_bar": my_bar,
+                            "particle_count": (
+                                int(particle_count_override)
+                                if int(particle_count_override) > 0
+                                else None
+                            ),
+                            "seed": (
+                                int(random_seed) if int(random_seed) > 0 else None
+                            ),
+                            "backend": particle_backend,
+                            "dt_minutes": int(dt_minutes),
+                            "output_hours": int(output_hours),
+                            "repeat_release_hours": (
+                                int(repeat_release_hours)
+                                if release_mode == "repeated"
+                                else None
+                            ),
+                        }.items()
+                        if k in inspect.signature(core_lpt.run_simulation).parameters
+                    }
                 )
 
                 status.update(
