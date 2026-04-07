@@ -87,6 +87,11 @@ ZARR_PATH = "output.zarr"
 tmp_path = None
 days = 2
 valid_data = False  # Flag to control simulation execution
+particle_backend = "scipy"
+particle_count_override = 0
+random_seed = 0
+dt_minutes = 10
+output_hours = 1
 
 # -----------------------------
 # FILE HANDLING, VALIDATION & METADATA
@@ -189,6 +194,31 @@ if valid_data:
         "Particle counts are constrained by **Web-UI Rendering Limits** to ensure interactive frame rates."
     )
 
+    with st.expander("Advanced Simulation Settings", expanded=False):
+        particle_backend = st.selectbox(
+            "Backend",
+            ["scipy", "jit"],
+            help="scipy daha uyumlu; jit daha hizli olabilir ama ortama baglidir.",
+        )
+        particle_count_override = st.number_input(
+            "Particle Count Override (0 = mode default)",
+            min_value=0,
+            value=0,
+            step=10,
+        )
+        random_seed = st.number_input(
+            "Random Seed (0 = random)",
+            min_value=0,
+            value=0,
+            step=1,
+        )
+        dt_minutes = st.slider(
+            "Advection Time Step (minutes)", min_value=1, max_value=60, value=10
+        )
+        output_hours = st.slider(
+            "Output Interval (hours)", min_value=1, max_value=24, value=1
+        )
+
     run_button = st.button("Run Simulation", type="primary")
 
     # -----------------------------
@@ -207,6 +237,15 @@ if valid_data:
                     days=days,
                     mode=particle_mode,
                     progress_bar=my_bar,
+                    particle_count=(
+                        int(particle_count_override)
+                        if int(particle_count_override) > 0
+                        else None
+                    ),
+                    seed=(int(random_seed) if int(random_seed) > 0 else None),
+                    backend=particle_backend,
+                    dt_minutes=int(dt_minutes),
+                    output_hours=int(output_hours),
                 )
 
                 status.update(

@@ -1,5 +1,12 @@
 import xarray as xr
-from parcels import FieldSet, ParticleSet, ScipyParticle, AdvectionRK4, StatusCode
+from parcels import (
+    FieldSet,
+    ParticleSet,
+    ScipyParticle,
+    JITParticle,
+    AdvectionRK4,
+    StatusCode,
+)
 from datetime import timedelta
 import numpy as np
 import os
@@ -39,11 +46,35 @@ def DeleteParticle(particle, fieldset, time):
         particle.delete()
 
 
-def _create_particles(ds, lon_min, lon_max, lat_min, lat_max, mode="uniform"):
+def _create_particles(
+    ds,
+    lon_min,
+    lon_max,
+    lat_min,
+    lat_max,
+    mode="uniform",
+    particle_count=None,
+    rng=None,
+):
     """
     Creates initial particle positions by reading the actual water mask directly
     from the NetCDF dataset to prevent spawning on land.
     """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    default_counts = {
+        "uniform": UNIFORM_N_PARTICLES,
+        "random": RANDOM_N_PARTICLES,
+        "hybrid": HYBRID_N_GLOBAL + HYBRID_N_HOT,
+        "valid": VALID_N_PARTICLES,
+    }
+    target_count = (
+        int(particle_count)
+        if particle_count is not None and int(particle_count) > 0
+        else default_counts.get(mode, UNIFORM_N_PARTICLES)
+    )
+
     if "depth" in ds["uo"].dims:
         u_data = ds["uo"].isel(time=0, depth=0)
     else:
@@ -69,27 +100,21 @@ def _create_particles(ds, lon_min, lon_max, lat_min, lat_max, mode="uniform"):
 
     # Mode logic applied ONLY on valid water points
     if mode == "valid":
-        idx = np.random.choice(
-            len(valid_lons), min(len(valid_lons), VALID_N_PARTICLES), replace=False
-        )
+        replace = target_count > len(valid_lons)
+        idx = rng.choice(len(valid_lons), target_count, replace=replace)
         return valid_lons[idx], valid_lats[idx]
 
     elif mode == "random":
-        idx = np.random.choice(
-            len(valid_lons), min(len(valid_lons), RANDOM_N_PARTICLES), replace=False
-        )
+        replace = target_count > len(valid_lons)
+        idx = rng.choice(len(valid_lons), target_count, replace=replace)
         return valid_lons[idx], valid_lats[idx]
 
     elif mode == "hybrid":
-        idx = np.random.choice(
-            len(valid_lons),
-            min(len(valid_lons), HYBRID_N_GLOBAL + HYBRID_N_HOT),
-            replace=True,
-        )
+        idx = rng.choice(len(valid_lons), target_count, replace=True)
         return valid_lons[idx], valid_lats[idx]
 
     else:  # uniform
-        n = min(len(valid_lons), UNIFORM_N_PARTICLES)
+        n = min(len(valid_lons), target_count)
         indices = np.linspace(0, len(valid_lons) - 1, n, dtype=int)
         return valid_lons[indices], valid_lats[indices]
 
@@ -97,11 +122,27 @@ def _create_particles(ds, lon_min, lon_max, lat_min, lat_max, mode="uniform"):
 # -----------------------------
 # MAIN EXECUTION
 # -----------------------------
-def run_simulation(file_path, output_path, days=2, mode="uniform", progress_bar=None):
+def run_simulation(
+    file_path,
+    output_path,
+    days=2,
+    mode="uniform",
+    progress_bar=None,
+    particle_count=None,
+    seed=None,
+    backend="scipy",
+    dt_minutes=SIMULATION_MINUTES_DT,
+    output_hours=OUTPUT_HOURS_DT,
+):
     """
     Runs the Lagrangian Particle Tracking simulation.
     """
     ds = xr.open_dataset(file_path)
+    rng = np.random.default_rng(seed if seed is not None else None)
+
+    selected_backend = str(backend).strip().lower()
+    if selected_backend not in {"scipy", "jit"}:
+        raise ValueError("backend must be either 'scipy' or 'jit'")
 
     if "uo" not in ds or "vo" not in ds:
         raise ValueError(
@@ -159,14 +200,41 @@ def run_simulation(file_path, output_path, days=2, mode="uniform", progress_bar=
     # PARTICLES
     # -----------------------------
     # Now passing the opened dataset directly to _create_particles
-    lon, lat = _create_particles(ds, lon_min, lon_max, lat_min, lat_max, mode)
+    lon, lat = _create_particles(
+        ds,
+        lon_min,
+        lon_max,
+        lat_min,
+        lat_max,
+        mode,
+        particle_count=particle_count,
+        rng=rng,
+    )
 
     # Assign correct surface depth to prevent immediate Out-Of-Bounds deletion
     depth_array = np.full(len(lon), surface_depth)
 
-    pset = ParticleSet.from_list(
-        fieldset=fieldset, pclass=ScipyParticle, lon=lon, lat=lat, depth=depth_array
-    )
+    pclass = JITParticle if selected_backend == "jit" else ScipyParticle
+    try:
+        pset = ParticleSet.from_list(
+            fieldset=fieldset,
+            pclass=pclass,
+            lon=lon,
+            lat=lat,
+            depth=depth_array,
+        )
+    except Exception as e:
+        if selected_backend == "jit":
+            print(f"WARNING: JIT backend failed ({e}). Falling back to Scipy backend.")
+            pset = ParticleSet.from_list(
+                fieldset=fieldset,
+                pclass=ScipyParticle,
+                lon=lon,
+                lat=lat,
+                depth=depth_array,
+            )
+        else:
+            raise
 
     # -----------------------------
     # OUTPUT
@@ -175,7 +243,7 @@ def run_simulation(file_path, output_path, days=2, mode="uniform", progress_bar=
         shutil.rmtree(output_path, ignore_errors=True)
 
     output_file = pset.ParticleFile(
-        name=output_path, outputdt=timedelta(hours=OUTPUT_HOURS_DT)
+        name=output_path, outputdt=timedelta(hours=int(output_hours))
     )
 
     # -----------------------------
@@ -188,7 +256,7 @@ def run_simulation(file_path, output_path, days=2, mode="uniform", progress_bar=
             pset.execute(
                 execution_kernel,
                 runtime=timedelta(days=1),  # Her seferinde 1 gün
-                dt=timedelta(minutes=SIMULATION_MINUTES_DT),
+                dt=timedelta(minutes=int(dt_minutes)),
                 output_file=output_file,
             )
             # Eğer arayüzden bir progress_bar objesi gelmişse güncelle
