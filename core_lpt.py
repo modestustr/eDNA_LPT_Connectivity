@@ -255,11 +255,11 @@ def run_simulation(
         for d in range(days):
             pset.execute(
                 execution_kernel,
-                runtime=timedelta(days=1),  # Her seferinde 1 gün
+                runtime=timedelta(days=1),  # Run one day per iteration
                 dt=timedelta(minutes=int(dt_minutes)),
                 output_file=output_file,
             )
-            # Eğer arayüzden bir progress_bar objesi gelmişse güncelle
+            # Update progress if a UI progress bar object is provided
             if progress_bar:
                 progress_val = (d + 1) / days
                 progress_bar.progress(progress_val, text=f"Simulation: Day {d+1} of {days} in progress...")

@@ -198,7 +198,7 @@ if valid_data:
         particle_backend = st.selectbox(
             "Backend",
             ["scipy", "jit"],
-            help="scipy daha uyumlu; jit daha hizli olabilir ama ortama baglidir.",
+            help="scipy is generally more compatible; jit can be faster depending on the environment.",
         )
         particle_count_override = st.number_input(
             "Particle Count Override (0 = mode default)",
