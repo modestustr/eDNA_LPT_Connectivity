@@ -111,18 +111,18 @@ if uploaded_file and tmp_path:
     has_vo = "vo" in ds_temp.data_vars
     valid_data = has_uo and has_vo
 
-    with st.expander("📄 View Uploaded NetCDF File Details", expanded=True):
+    with st.expander("View Uploaded NetCDF File Details", expanded=True):
         st.markdown("**Detected Variables:**")
         st.code(", ".join(list(ds_temp.data_vars.keys())))
 
         if not valid_data:
             st.error(
-                "❌ **Critical Error:** Expected velocity variables ('uo' and 'vo') are missing. "
+                "Critical Error: Expected velocity variables ('uo' and 'vo') are missing. "
                 "This file is not compatible with Lagrangian Particle Tracking."
             )
         else:
             st.success(
-                "✅ Velocity fields ('uo', 'vo') detected. Ready for simulation."
+                "Velocity fields ('uo', 'vo') detected. Ready for simulation."
             )
 
         st.markdown("**Detected Dimensions:**")
@@ -132,7 +132,7 @@ if uploaded_file and tmp_path:
             start_time = str(ds_temp.time.values[0])[:19]
             end_time = str(ds_temp.time.values[-1])[:19]
             st.markdown("**Time Coverage:**")
-            st.info(f"{start_time}  ➡️  {end_time}")
+            st.info(f"{start_time} to {end_time}")
 
     if valid_data:
         st.header("2. Simulation Parameters")
@@ -159,7 +159,7 @@ if valid_data:
     )
     # Display mode-specific information
     st.warning(
-        "⚠️ **USER NOTICE:** This simulation requires 'uo' and 'vo' velocity fields. "
+        "USER NOTICE: This simulation requires 'uo' and 'vo' velocity fields. "
         "If particles go out-of-bounds, this is expected physical behavior and not an error in the code."
     )
     if particle_mode == "uniform":
@@ -227,7 +227,7 @@ if valid_data:
     if run_button and tmp_path is not None:
         # Using st.status to mimic the terminal logging behavior
         with st.status(
-            "🚀 Running Lagrangian Particle Tracking...", expanded=True
+            "Running Lagrangian Particle Tracking...", expanded=True
         ) as status:
             my_bar = st.progress(0, text="Initializing simulation...")
             try:
