@@ -92,6 +92,8 @@ particle_count_override = 0
 random_seed = 0
 dt_minutes = 10
 output_hours = 1
+release_mode = "instant"
+repeat_release_hours = 6
 
 # -----------------------------
 # FILE HANDLING, VALIDATION & METADATA
@@ -218,6 +220,18 @@ if valid_data:
         output_hours = st.slider(
             "Output Interval (hours)", min_value=1, max_value=24, value=1
         )
+        release_mode = st.selectbox(
+            "Release Strategy",
+            ["instant", "repeated"],
+            help="instant releases particles once; repeated injects new particles at a fixed interval.",
+        )
+        if release_mode == "repeated":
+            repeat_release_hours = st.slider(
+                "Repeated Release Interval (hours)",
+                min_value=1,
+                max_value=24,
+                value=6,
+            )
 
     run_button = st.button("Run Simulation", type="primary")
 
@@ -246,6 +260,9 @@ if valid_data:
                     backend=particle_backend,
                     dt_minutes=int(dt_minutes),
                     output_hours=int(output_hours),
+                    repeat_release_hours=(
+                        int(repeat_release_hours) if release_mode == "repeated" else None
+                    ),
                 )
 
                 status.update(
@@ -285,6 +302,23 @@ if os.path.exists(ZARR_PATH):
                 value=n_steps - 1,
                 step=1,
             )
+
+            alive_mask = np.isfinite(ds.lon[:, step].values) & np.isfinite(
+                ds.lat[:, step].values
+            )
+            alive_count = int(np.sum(alive_mask))
+            total_particles = int(ds.sizes.get("trajectory", 0))
+            alive_ratio = (
+                (alive_count / total_particles) * 100 if total_particles > 0 else 0.0
+            )
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Trajectories", total_particles)
+            with col2:
+                st.metric("Active at Selected Step", alive_count)
+            with col3:
+                st.metric("Active Ratio", f"{alive_ratio:.1f}%")
 
             # col1, col2, col3 = st.columns(3)
             # with col1:

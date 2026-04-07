@@ -133,6 +133,7 @@ def run_simulation(
     backend="scipy",
     dt_minutes=SIMULATION_MINUTES_DT,
     output_hours=OUTPUT_HOURS_DT,
+    repeat_release_hours=None,
 ):
     """
     Runs the Lagrangian Particle Tracking simulation.
@@ -215,24 +216,27 @@ def run_simulation(
     depth_array = np.full(len(lon), surface_depth)
 
     pclass = JITParticle if selected_backend == "jit" else ScipyParticle
+    repeatdt = None
+    if repeat_release_hours is not None and float(repeat_release_hours) > 0:
+        repeatdt = timedelta(hours=float(repeat_release_hours))
+
+    pset_kwargs = {
+        "fieldset": fieldset,
+        "pclass": pclass,
+        "lon": lon,
+        "lat": lat,
+        "depth": depth_array,
+    }
+    if repeatdt is not None:
+        pset_kwargs["repeatdt"] = repeatdt
+
     try:
-        pset = ParticleSet.from_list(
-            fieldset=fieldset,
-            pclass=pclass,
-            lon=lon,
-            lat=lat,
-            depth=depth_array,
-        )
+        pset = ParticleSet.from_list(**pset_kwargs)
     except Exception as e:
         if selected_backend == "jit":
             print(f"WARNING: JIT backend failed ({e}). Falling back to Scipy backend.")
-            pset = ParticleSet.from_list(
-                fieldset=fieldset,
-                pclass=ScipyParticle,
-                lon=lon,
-                lat=lat,
-                depth=depth_array,
-            )
+            pset_kwargs["pclass"] = ScipyParticle
+            pset = ParticleSet.from_list(**pset_kwargs)
         else:
             raise
 
