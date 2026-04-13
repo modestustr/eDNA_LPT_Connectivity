@@ -598,6 +598,275 @@ pytest tests/test_api_service.py -v
 
 ---
 
+## Phase 5A: Windows Service Packaging [PLANNED → Q2 2026]
+
+**Objective:** Standalone executable + service control
+
+**Deliverables:**
+1. **build_exe.spec** - PyInstaller configuration
+   - Package api_server.py → eDNA_LPT_SimService.exe
+   - Auto-detect Python dependencies
+   - Single-file output (~150MB)
+   - Windows icon + version info
+
+2. **deploy/service_manager.ps1** - PowerShell service control
+   ```powershell
+   # Install as background service
+   .\service_manager.ps1 -Action Install -ServiceName eDNALPTSim
+   
+   # Lifecycle management
+   .\service_manager.ps1 -Action Start
+   .\service_manager.ps1 -Action Stop
+   .\service_manager.ps1 -Action Restart
+   .\service_manager.ps1 -Action Remove
+   ```
+
+3. **WINDOWS_SERVICE_READY.md** - Deployment guide
+   - Installation prerequisites
+   - Configuration (.ini or env vars)
+   - Auto-start on boot
+   - Firewall exceptions
+   - Troubleshooting
+
+**Status:** ⏳ Not started
+
+---
+
+## Phase 5B: Testing Framework [PLANNED → Q2 2026]
+
+**Objective:** Independent testing of each architectural layer
+
+**Components:**
+1. **tests/test_api_service.py** (60+ tests)
+   - Mock simulation runner
+   - Preflight validation logic
+   - Error handling paths
+   - Batch configuration parsing
+
+2. **tests/test_api_client.py** (40+ tests)
+   - Local mode operation
+   - HTTP response handling
+   - Mode auto-detection
+   - Fallback scenarios
+
+3. **tests/test_api_server.py** (50+ tests)
+   - FastAPI endpoint validation
+   - Request/response schemas
+   - Error responses (400, 500)
+   - SSE streaming format
+
+4. **tests/test_integration.py** (20+ tests)
+   - Full startup sequence
+   - Single run workflow
+   - Batch execution
+   - Failure recovery
+
+**Target Coverage:** 70%+ of API layers
+
+**Status:** ⏳ Not started
+
+---
+
+## Phase 5C: Monitoring & Logging [PLANNED → Q2 2026]
+
+**Objective:** Production observability and diagnostics
+
+**Components:**
+1. **src/monitoring/metrics.py** (Enhanced)
+   - Prometheus-compatible endpoints
+   - Runtime statistics collection
+   - Error rate tracking
+   - Response latency histograms
+
+2. **src/monitoring/logging.py** (Enhanced)
+   - Structured JSON logging
+   - Request tracing (correlation IDs)
+   - Performance profiling hooks
+   - Debug mode toggles
+
+3. **src/monitoring/database.py** (NEW)
+   - SQLite run history (local)
+   - PostgreSQL migrations (production)
+   - Query performance logging
+   - Retention policies
+
+4. **docs/MONITORING_GUIDE.md** (NEW)
+   - Health check interpretation
+   - Performance baselines
+   - Alert thresholds
+   - Dashboard setup (Grafana/Kibana)
+
+**Status:** ⏳ Not started
+
+---
+
+## Phase 6: API as a Product [PLANNED → Q3 2026]
+
+**Objective:** Turn internal API into public-facing service with auth, documentation, and free hosting
+
+### 6A: Authentication & Authorization (2-3 hours)
+
+**Components:**
+1. **src/api/auth.py** (NEW - 150 lines)
+   ```python
+   from fastapi_jwt_extended import JWTManager, create_access_token
+   from fastapi.security import HTTPBearer
+   
+   # Endpoints:
+   # POST /auth/signup      - Create new user
+   # POST /auth/login       - Generate JWT token
+   # POST /auth/refresh     - Refresh expired token
+   # POST /auth/revoke      - Logout + token blacklist
+   ```
+
+2. **JWT Configuration**
+   ```python
+   jwt_config = {
+       "algorithm": "HS256",
+       "expiry_minutes": 480,  # 8 hours
+       "refresh_expiry_days": 30
+   }
+   ```
+
+3. **Protected Endpoints**
+   ```python
+   @app.post("/run/single")
+   def run_single(token: str = Depends(verify_token)):
+       # Only authenticated users
+       ...
+   
+   @app.get("/health")  # Public
+   def health():
+       # No auth required
+       ...
+   ```
+
+4. **User Model**
+   ```python
+   class User:
+       id: UUID
+       email: str
+       password_hash: str
+       api_key: str  # Legacy auth
+       created_at: datetime
+       quota_daily: int = 100  # Requests per day
+       quota_monthly: int = 5000
+   ```
+
+**Status:** ⏳ Not started
+
+---
+
+### 6B: API Documentation & Standards (3-4 hours)
+
+**Deliverables:**
+1. **docs/API_DEPLOYMENT.md** (NEW)
+   - Rate limiting policies (100 req/day free tier)
+   - Error codes & handling
+   - SLA definitions (99.5% uptime)
+   - Data retention (30 days)
+   - Versioning scheme (v1/v2)
+
+2. **OpenAPI Enhancements**
+   - Extend `/docs` with auth examples
+   - Add usage scenarios (Python, cURL, JavaScript)
+   - Include error responses
+   - Rate limit headers explained
+
+3. **Client Libraries** (Optional)
+   - Python: PyPI package `edna-lpt-client`
+   - JavaScript/Node: npm package
+   - CLI tool for batch operations
+
+4. **Webhook Support** (Optional)
+   ```python
+   # Callback when simulation completes
+   POST https://user-app.com/webhooks/sim-complete
+   {
+       "run_id": "abc123",
+       "status": "succeeded",
+       "output_path": "s3://..."
+   }
+   ```
+
+**Status:** ⏳ Not started
+
+---
+
+### 6C: Free Hosting Setup (2-3 hours)
+
+**Recommended Platform: Railway.app**
+
+**Setup Steps:**
+1. Create Railway account (railway.app)
+2. Connect GitHub repo
+3. Set environment variables:
+   ```
+   JWT_SECRET=random-secret-key
+   DATABASE_URL=postgresql://...
+   LOG_LEVEL=info
+   ```
+4. Add PostgreSQL plugin ($12/mo)
+5. Deploy: `git push` → auto-deploys
+6. Custom domain: `api.edna-lpt.io` (optional $10/mo)
+7. Auto-scaling: CPU-based
+
+**Alternative Platforms:**
+- **Render**: Similar, slightly simpler UI
+- **Fly.io**: Global edge deployment
+- **Azure Free Tier**: 12 months free
+
+**Deployment Architecture:**
+```
+GitHub (main branch)
+    ↓
+GitHub Actions CI/CD
+    ↓
+Railway.app
+├─ FastAPI Router (port 8000)
+├─ PostgreSQL Database
+├─ Redis Cache (optional)
+└─ Monitoring/Logging
+    ↓
+Public API: https://api.edna-lpt.io
+```
+
+**Status:** ⏳ Not started
+
+---
+
+## Phase 6 Implementation Roadmap
+
+| Task | Effort | Status |
+|------|--------|--------|
+| JWT middleware | 1.5h | 📋 Queued |
+| User model + DB | 1h | 📋 Queued |
+| /auth/* endpoints | 1h | 📋 Queued |
+| Protect /run/* endpoints | 0.5h | 📋 Queued |
+| Rate limiting decorator | 1h | 📋 Queued |
+| Documentation | 2h | 📋 Queued |
+| Railway.app setup | 1h | 📋 Queued |
+| Domain + HTTPS | 0.5h | 📋 Queued |
+| **Total** | **~8 hours** | 📋 Phase 6 Queued |
+
+---
+
+## Execution Plan (Next 2 Weeks)
+
+### Week 1: Infrastructure (Phase 5A-5C)
+- [ ] Phase 5A: Windows .exe build + service scripts (2h)
+- [ ] Phase 5B: pytest setup + basic test stubs (2h)
+- [ ] Phase 5C: Logging enhancements + metrics (2h)
+- **Commits:** 3 separate PRs
+
+### Week 2: API Product (Phase 6)
+- [ ] Phase 6A: JWT authentication (3h)
+- [ ] Phase 6B: API documentation (2h)
+- [ ] Phase 6C: Railway.app deployment (1.5h)
+- **Commits:** 1 comprehensive PR
+
+---
+
 **End of Document**
 
 Last Updated: 2026-04-12  
