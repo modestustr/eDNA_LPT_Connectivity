@@ -15,6 +15,13 @@ fastapi>=0.104.0
 pydantic>=2.0.0
 requests>=2.31.0
 
+# Authentication & Security (Phase 6A - JWT Authentication)
+fastapi-jwt-extended>=4.5.0
+argon2-cffi>=23.1.0
+PyJWT>=2.8.0
+email-validator>=2.1.0
+python-multipart>=0.0.6
+
 # Optional: Uvicorn for HTTP server
 uvicorn[standard]>=0.24.0
 

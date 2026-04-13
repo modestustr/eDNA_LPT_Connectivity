@@ -13,7 +13,7 @@ Or from within the app:
     server_thread.start()
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Request, Depends
 from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -24,6 +24,11 @@ from datetime import datetime
 import uuid
 
 from .service import SimulationService
+from .auth import (
+    UserCreate, TokenRequest, TokenResponse, RefreshTokenRequest, 
+    UserResponse, verify_token, create_access_token, create_refresh_token,
+    create_user, authenticate_user, get_jwt_settings, JWTSettings
+)
 from src.core.simulation_contracts import RunStatus
 from src.monitoring.metrics import get_metrics_collector, TimedOperation
 from src.monitoring.logging import get_contextual_logger, RequestContext
@@ -213,6 +218,115 @@ async def get_version():
 
 
 # ============================================================================
+# Authentication Endpoints (Phase 6A)
+# ============================================================================
+
+@app.post("/auth/signup", response_model=UserResponse, tags=["Authentication"], 
+          status_code=201)
+async def signup(user_create: UserCreate):
+    """
+    Register a new user.
+    
+    Args:
+        user_create: UserCreate with email, password, full_name
+        
+    Returns:
+        Created user (without password)
+        
+    Raises:
+        HTTPException: If user already exists
+    """
+    try:
+        user = create_user(user_create)
+        logger.info(f"New user created: {user_create.email}")
+        return user
+    except ValueError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Signup error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Signup failed"
+        )
+
+
+@app.post("/auth/login", response_model=TokenResponse, tags=["Authentication"])
+async def login(token_request: TokenRequest, settings: JWTSettings = Depends(get_jwt_settings)):
+    """
+    Authenticate user and get access/refresh tokens.
+    
+    Args:
+        token_request: TokenRequest with email and password
+        settings: JWT settings
+        
+    Returns:
+        TokenResponse with access_token, refresh_token, expires_in
+        
+    Raises:
+        HTTPException: If credentials invalid
+    """
+    # Authenticate user
+    if not authenticate_user(token_request.email, token_request.password):
+        logger.warning(f"Failed login attempt: {token_request.email}")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+    
+    # Generate tokens
+    access_token = create_access_token(token_request.email, settings)
+    refresh_token = create_refresh_token(token_request.email, settings)
+    
+    logger.info(f"User logged in: {token_request.email}")
+    
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert to seconds
+    )
+
+
+@app.post("/auth/refresh", response_model=TokenResponse, tags=["Authentication"])
+async def refresh_token(request: RefreshTokenRequest, settings: JWTSettings = Depends(get_jwt_settings)):
+    """
+    Refresh an access token using a refresh token.
+    
+    Args:
+        request: RefreshTokenRequest with refresh_token
+        settings: JWT settings
+        
+    Returns:
+        New TokenResponse with fresh access_token
+        
+    Raises:
+        HTTPException: If refresh token invalid or expired
+    """
+    from .auth import verify_refresh_token
+    
+    try:
+        email = verify_refresh_token(request.refresh_token, settings)
+        access_token = create_access_token(email, settings)
+        
+        logger.info(f"Token refreshed for: {email}")
+        
+        return TokenResponse(
+            access_token=access_token,
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token refresh error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Token refresh failed"
+        )
+
+
+# ============================================================================
 # Validation Endpoints
 # ============================================================================
 
@@ -284,12 +398,18 @@ async def validate_batch_runs(request: BatchValidationRequest):
 # ============================================================================
 
 @app.post("/run/single", tags=["Execution"])
-async def run_single(request: SingleRunRequest, background_tasks: BackgroundTasks):
+async def run_single(
+    request: SingleRunRequest, 
+    background_tasks: BackgroundTasks,
+    user_email: str = Depends(verify_token)
+):
     """
-    Execute a single simulation run.
+    Execute a single simulation run (requires authentication).
     
     Args:
         request: SingleRunRequest with dataset_path, output_path, config
+        background_tasks: Background task manager
+        user_email: Authenticated user email (from JWT token)
         
     Returns:
         RunResult object with status, timing, artifacts, errors
