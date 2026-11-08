@@ -115,9 +115,15 @@ dmypy.json
 # Local scripts
 Birlestir.ps1
 
-# Data files
+# Data files & outputs
 *.nc
 *.zarr
+output.zarr/
+run_outputs/
+runs/
+
+# Temporary runtime
+.upload_cache/
 output.zarr/
 output.zarr/
 dataset.nc
